@@ -30,12 +30,15 @@ services:
         - MONGO_INITDB_ROOT_PASSWORD=tuan
       volumes:
         - ./data/mongo_data:/data/db
-  oracle:
-    image: container-registry.oracle.com/database/free:latest
-    container_name: oracle_news_rag
+  postgres:
+    image: ankane/pgvector:latest # Bản có sẵn vector search
+    container_name: postgres_news_rag
     ports:
-      - "1521:1521"
+      - "5432:5432"
     environment:
-      - ORACLE_PASSWORD=tuan_password
+      - POSTGRES_USER=tuan
+      - POSTGRES_PASSWORD=tuan
+      - POSTGRES_DB=news_rag
     volumes:
-      - ./data/oracle_data:/opt/oracle/oradata
+      - ./data/postgres_data:/var/lib/postgresql/data
+    

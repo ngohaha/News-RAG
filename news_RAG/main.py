@@ -1,24 +1,45 @@
 import multiprocessing
-import consumer  # Import file vừa viết
+import consumer.consumer as consumer_module
 from scrapy.crawler import CrawlerProcess
 from scrapy.utils.project import get_project_settings
-from crawler.spider import NewsRAGSpider
+from crawler.spiders.spider import NewsRAGSpider
+import time
 
 def run_spider():
+    # Khởi tạo lại settings bên trong process con để tránh share memory lỗi
     settings = get_project_settings()
     process = CrawlerProcess(settings)
     process.crawl(NewsRAGSpider)
     process.start()
 
 def run_consumer():
-    consumer.start_processing()
+    # Đảm bảo Consumer có thời gian khởi tạo kết nối DB sạch
+    time.sleep(2) 
+    consumer_module.start_processing()
 
 if __name__ == "__main__":
-    p1 = multiprocessing.Process(target=run_spider)
-    p2 = multiprocessing.Process(target=run_consumer)
+    # Ép dùng phương thức 'spawn' để tạo process sạch hoàn toàn (giống Windows/macOS)
+    # Điều này cực kỳ quan trọng trên Arch để tránh lỗi share signal
+    multiprocessing.set_start_method('spawn', force=True)
 
-    p2.start() # Chạy Consumer trước để đợi sẵn
-    p1.start() # Chạy Spider để bắt đầu crawl
+    p_consumer = multiprocessing.Process(target=run_consumer)
+    p_spider = multiprocessing.Process(target=run_spider)
 
-    p1.join()
-    p2.join()
+    try:
+        p_consumer.start()
+        print("🚀 Consumer đã sẵn sàng...")
+        
+        time.sleep(3) # Đợi Consumer ổn định Group ID với Kafka
+        
+        p_spider.start()
+        print("🕷️ Spider bắt đầu cào...")
+
+        p_spider.join()
+        # Lưu ý: Consumer thường chạy vô tận, nếu muốn dừng khi spider xong:
+        p_consumer.terminate() 
+        p_consumer.join()
+        
+    except KeyboardInterrupt:
+        print("\n🛑 Đang dừng hệ thống...")
+        p_spider.terminate()
+        p_consumer.terminate()

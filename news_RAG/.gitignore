@@ -1,0 +1,11 @@
+# Database
+data/
+news_RAG/data/
+
+# Python rác
+__pycache__/
+*.pyc
+venv/
+
+# Scrapy
+.scrapy/
