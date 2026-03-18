@@ -34,7 +34,7 @@ def start_processing():
 
     try:
         while True:
-            print(" [Consumer] Đang chờ message mới...")
+            print(" [Consumer] Đang chờ message mới..." )
             msg = consumer.poll(1.0)
             if msg is None:
                 continue

@@ -27,12 +27,12 @@ if __name__ == "__main__":
 
     try:
         p_consumer.start()
-        print("🚀 Consumer đã sẵn sàng...")
+        print("Consumer đã sẵn sàng...")
         
         time.sleep(3) # Đợi Consumer ổn định Group ID với Kafka
         
         p_spider.start()
-        print("🕷️ Spider bắt đầu cào...")
+        print("Spider bắt đầu cào...")
 
         p_spider.join()
         # Lưu ý: Consumer thường chạy vô tận, nếu muốn dừng khi spider xong:
@@ -40,6 +40,6 @@ if __name__ == "__main__":
         p_consumer.join()
         
     except KeyboardInterrupt:
-        print("\n🛑 Đang dừng hệ thống...")
+        print("\n Đang dừng hệ thống...")
         p_spider.terminate()
         p_consumer.terminate()
