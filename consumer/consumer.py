@@ -18,7 +18,7 @@ def get_postgres_conn():
 # Kafka config
 conf = {
     'bootstrap.servers': 'localhost:9092',
-    'group.id': 'news_rag_group_v2', # Đổi tên group ở đây
+    'group.id': 'news_rag_group_concho', # Đổi tên group ở đây
     'auto.offset.reset': 'earliest'
 }
 
@@ -48,6 +48,10 @@ def start_processing():
                 url = data.get('url', '')
                 title = data.get('title', 'No Title')
 
+                # Add author and publish date if available
+                author = data.get('author', 'Unknown')
+                publish_date = data.get('publish_date', None)
+
                 if not url:
                     continue
 
@@ -58,11 +62,11 @@ def start_processing():
 
                     # INSERT với ON CONFLICT (dedup cực sạch)
                     cursor.execute("""
-                        INSERT INTO article_metadata (url_hash, url, title, content)
-                        VALUES (%s, %s, %s, %s)
+                        INSERT INTO article_metadata (url_hash, url, title, content, author, publish_date)
+                        VALUES (%s, %s, %s, %s, %s, %s)
                         ON CONFLICT (url_hash) DO NOTHING
                         RETURNING url_hash;
-                    """, (url_hash, url, title, json.dumps(data)))
+                    """, (url_hash, url, title, json.dumps(data), author, publish_date))
 
                     result = cursor.fetchone()
 

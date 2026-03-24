@@ -1,7 +1,9 @@
 import os
 import json
+import re
 import scrapy
 from newspaper import Article
+from dateutil import parser as date_parser
 
 class NewsRAGSpider(scrapy.Spider):
     name = 'news_rag_spider'
@@ -10,8 +12,10 @@ class NewsRAGSpider(scrapy.Spider):
         'DOWNLOAD_DELAY': 0.8,
         'DEPTH_LIMIT': 5,
         'MEMUSAGE_LIMIT_MB': 512,
-        'ROBOTSTXT_OBEY': True,
+        # 'ROBOTSTXT_OBEY': True,
+        'ROBOTSTXT_OBEY': False,
         'LOG_LEVEL': 'INFO',
+        'USER_AGENT': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' # THÊM DÒNG NÀY
     }
 
     def __init__(self, *args, **kwargs):
@@ -66,9 +70,45 @@ class NewsRAGSpider(scrapy.Spider):
         if not article.text:
             return
 
+        # ----- AUTHOR -----
+        author_list = article.authors
+        author = ", ".join(author_list).strip() if author_list else ""
+
+        if not author:
+            author = (
+                response.css('p.author_mail strong::text').get() or
+                response.css('article.fck_detail p[style*="text-align:right"] strong::text').get() or
+                response.css('.author::text').get()
+            )
+
+        author = author.strip() if author else "Unknown"
+
+        # ----- PUBLISH DATE -----
+        p_date = article.publish_date
+        if not p_date:
+            raw_date = (
+                response.css('meta[property="article:published_time"]::attr(content)').get()
+                or response.css('span.date::text').get()   
+                or response.css('div.author-time span::text').get()  
+            )
+            if raw_date:
+                try:
+                    # xử lý format tiếng Việt
+                    raw_date = re.sub(r"Thứ\s\w+,\s*", "", raw_date)
+                    raw_date = raw_date.replace("(GMT+7)", "").strip()
+                    p_date = date_parser.parse(raw_date, dayfirst=True)
+                except Exception as e:
+                    print("Parse date error:", raw_date, e)
+                    p_date = None
+        publish_date = p_date.strftime("%Y-%m-%d %H:%M:%S") if p_date else "Unknown"
+        
+        
+        # ----- OUTPUT -----
         yield {
-            'title': article.title,
-            'content': article.text,
+            'title': article.title.strip(),
+            'content': article.text.strip(),
             'url': response.url,
-            'source': response.url.split('/')[2]
+            'source': response.url.split('/')[2],
+            'author': author,
+            'publish_date': publish_date
         }

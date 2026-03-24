@@ -17,6 +17,7 @@ def run_consumer():
     time.sleep(2) 
     consumer_module.start_processing()
 
+
 if __name__ == "__main__":
     # Ép dùng phương thức 'spawn' để tạo process sạch hoàn toàn (giống Windows/macOS)
     # Điều này cực kỳ quan trọng trên Arch để tránh lỗi share signal
@@ -35,9 +36,12 @@ if __name__ == "__main__":
         print("Spider bắt đầu cào...")
 
         p_spider.join()
+        time.sleep(50) # Đợi Consumer xử lý nốt các message còn lại sau khi Spider xong
+
         # Lưu ý: Consumer thường chạy vô tận, nếu muốn dừng khi spider xong:
         p_consumer.terminate() 
         p_consumer.join()
+
         
     except KeyboardInterrupt:
         print("\n Đang dừng hệ thống...")
