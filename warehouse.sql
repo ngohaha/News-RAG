@@ -5,9 +5,8 @@ CREATE TABLE IF NOT EXISTS dim_source (
 );
 
 
-CREATE SEQUENCE IF NOT EXISTS dim_time_time_id_seq START 0 MINVALUE 0;
 CREATE TABLE IF NOT EXISTS dim_time (
-    time_id INT PRIMARY KEY DEFAULT nextval('dim_time_time_id_seq'),
+    time_id SERIAL PRIMARY KEY,
     date DATE UNIQUE,
     day INT,
     month INT,
@@ -20,22 +19,11 @@ CREATE TABLE IF NOT EXISTS dim_content (
     url_hash TEXT UNIQUE,
     content TEXT
 );
-CREATE SEQUENCE IF NOT EXISTS dim_author_author_id_seq START 0 MINVALUE 0;
+
 CREATE TABLE IF NOT EXISTS dim_author (
-    author_id INT PRIMARY KEY DEFAULT nextval('dim_author_author_id_seq'),
+    author_id SERIAL PRIMARY KEY,
     author_name TEXT UNIQUE
 );
-
--- --- KHỞI TẠO DỮ LIỆU MẶC ĐỊNH ---
--- Chèn sẵn bản ghi Unknown -----
-INSERT INTO dim_time (time_id, date, day, month, year)
-VALUES (0, '1900-01-01', 1, 1, 1900)
-ON CONFLICT (time_id) DO NOTHING;
-
-INSERT INTO dim_author (author_id, author_name)
-VALUES (0, 'Unknown')
-ON CONFLICT (author_id) DO NOTHING;
-
 
 ----- FACT TABLE -----
 CREATE TABLE IF NOT EXISTS fact_articles (
