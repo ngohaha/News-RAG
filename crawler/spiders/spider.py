@@ -4,6 +4,7 @@ import re
 import scrapy
 from newspaper import Article
 from dateutil import parser as date_parser
+from datetime import datetime
 
 class NewsRAGSpider(scrapy.Spider):
     name = 'news_rag_spider'
@@ -93,12 +94,22 @@ class NewsRAGSpider(scrapy.Spider):
             )
             if raw_date:
                 try:
-                    # xử lý format tiếng Việt
-                    raw_date = re.sub(r"Thứ\s\w+,\s*", "", raw_date)
-                    raw_date = raw_date.replace("(GMT+7)", "").strip()
-                    p_date = date_parser.parse(raw_date, dayfirst=True)
+        # 1. Dùng Regex để chỉ lấy các cụm số: Ngày/Tháng/Năm Giờ:Phút
+        # Tìm các nhóm số cách nhau bởi / hoặc - hoặc :
+                    match = re.search(r'(\d{1,2})[/-](\d{1,2})[/-](\d{4}).*?(\d{1,2}):(\d{1,2})', raw_date)
+                    
+                    if match:
+                        day, month, year, hour, minute = match.groups()
+                        # 2. Tạo đối tượng datetime từ các nhóm số đã bóc tách
+                        p_date = datetime(int(year), int(month), int(day), int(hour), int(minute))
+                    else:
+                        # 3. Fallback: Nếu không tìm thấy format quen thuộc, thử dùng parser mặc định
+                        # nhưng đã xóa bỏ các từ tiếng Việt gây nhiễu
+                        clean_date = re.sub(r'[^\d/:\s-]', '', raw_date).strip()
+                        p_date = date_parser.parse(clean_date, dayfirst=True)
+                        
                 except Exception as e:
-                    print("Parse date error:", raw_date, e)
+                    print(f"Parse date error: {raw_date} | Lỗi: {e}")
                     p_date = None
         publish_date = p_date.strftime("%Y-%m-%d %H:%M:%S") if p_date else "Unknown"
         

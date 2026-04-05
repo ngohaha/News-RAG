@@ -18,7 +18,7 @@ def get_postgres_conn():
 # Kafka config
 conf = {
     'bootstrap.servers': 'localhost:9092',
-    'group.id': 'news_rag_group_concho', # Đổi tên group ở đây
+    'group.id': 'news_rag_group_oithoichec', # Đổi tên group ở đây
     'auto.offset.reset': 'earliest'
 }
 

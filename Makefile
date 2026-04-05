@@ -1,7 +1,7 @@
 # --- BIẾN ---
 PYTHON = venv/bin/python
 SCRAPY = venv/bin/scrapy
-DOCKER_COMPOSE = docker compose
+DOCKER_COMPOSE = docker-compose
 
 # --- LỆNH CHÍNH ---
 
