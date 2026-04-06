@@ -1,114 +1,113 @@
 import os
 import json
 import re
+import platform
 import scrapy
 from newspaper import Article
 from dateutil import parser as date_parser
+from datetime import datetime
 
 class NewsRAGSpider(scrapy.Spider):
     name = 'news_rag_spider'
+    
+    # Check OS để cấu hình User-Agent và hiệu năng
+    is_windows = platform.system() == "Windows"
+    
     custom_settings = {
-        'CONCURRENT_REQUESTS': 32,
-        'DOWNLOAD_DELAY': 0.8,
+        'CONCURRENT_REQUESTS': 16 if is_windows else 32,
+        'DOWNLOAD_DELAY': 1.0 if is_windows else 0.5,
         'DEPTH_LIMIT': 5,
-        'MEMUSAGE_LIMIT_MB': 512,
-        # 'ROBOTSTXT_OBEY': True,
         'ROBOTSTXT_OBEY': False,
         'LOG_LEVEL': 'INFO',
-        'USER_AGENT': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' # THÊM DÒNG NÀY
+        'USER_AGENT': (
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+            if is_windows else
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+        )
     }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        config_path = os.path.join(os.path.dirname(__file__), 'config_site.json')
-        config_path = os.path.normpath(config_path)
+        
+        # Lấy đường dẫn tuyệt đối bất kể OS
+        curr_dir = os.path.dirname(os.path.realpath(__file__))
+        config_filename = 'config_site.json'
+        config_path = os.path.join(curr_dir, config_filename)
+        
+        # Fix lỗi đường dẫn trên Windows (chuẩn hóa dấu \ và /)
+        config_path = os.path.abspath(config_path)
+
         if not os.path.exists(config_path):
-            raise FileNotFoundError(f"Không tìm thấy cấu hình site: {config_path}")
+            self.logger.error(f"Không tìm thấy file: {config_path}")
+            return
 
         with open(config_path, 'r', encoding='utf-8') as f:
             sites = json.load(f)
 
-        self.start_urls = []
-        for site in sites:
-            if isinstance(site, dict) and 'url' in site:
-                self.start_urls.append(site['url'])
-            elif isinstance(site, str):
-                self.start_urls.append(site)
-
-        if not self.start_urls:
-            raise ValueError('Danh sách start_urls trống. Kiểm tra config_site.json')
-
-        #self.allowed_domains = [scrapy.utils.url.parse_url(url).netloc for url in self.start_urls if url]
+        self.start_urls = [s['url'] if isinstance(s, dict) else s for s in sites]
 
     def parse(self, response):
-        # 1. Lấy TẤT CẢ các link trên trang
+        curr_domain = scrapy.utils.url.parse_url(response.url).netloc
         all_links = response.css('a::attr(href)').getall()
         
         for link in all_links:
+            # BƯỚC QUAN TRỌNG: Loại bỏ link rác ngay từ đầu
+            if any(link.startswith(x) for x in ['mailto:', 'tel:', 'javascript:', '#']):
+                continue
+                
             full_url = response.urljoin(link)
             
-            # ĐIỀU KIỆN 1: Nếu là bài viết (có đuôi .html) -> Gửi sang parse_article
-            if full_url.endswith('.html') and 'vnexpress.net' in full_url:
-                yield response.follow(full_url, callback=self.parse_article)
-            
-            # ĐIỀU KIỆN 2: Nếu là chuyên mục (thời sự, thế giới, kinh doanh...) 
-            # Lọc bỏ các link rác như javascript, mailto, hoặc tag
-            elif any(cat in full_url for cat in ['/thoi-su', '/the-gioi', '/kinh-doanh', '/giai-tri']) \
-                 and 'vnexpress.net' in full_url \
-                 and '#' not in full_url:
-                # Gửi ngược lại hàm parse để nó tiếp tục tìm link bài viết trong chuyên mục đó
-                yield response.follow(full_url, callback=self.parse)
+            # Chỉ xử lý nếu cùng domain
+            if curr_domain in full_url:
+                # 1. Nếu là bài viết
+                if any(ext in full_url for ext in ['.html', '.htm', '.amp']):
+                    yield response.follow(full_url, callback=self.parse_article)
+                
+                # 2. Nếu là chuyên mục (đào sâu thêm)
+                elif len(full_url.replace('https://' + curr_domain, '').split('/')) <= 3:
+                    yield response.follow(full_url, callback=self.parse)
 
     def parse_article(self, response):
         article = Article(response.url)
         article.set_html(response.text)
         try:
             article.parse()
-        except Exception:
+        except:
             return
 
-        if not article.text:
+        if not article.text or len(article.text) < 100:
             return
 
-        # ----- AUTHOR -----
-        author_list = article.authors
-        author = ", ".join(author_list).strip() if author_list else ""
-
-        if not author:
-            author = (
-                response.css('p.author_mail strong::text').get() or
-                response.css('article.fck_detail p[style*="text-align:right"] strong::text').get() or
-                response.css('.author::text').get()
-            )
-
-        author = author.strip() if author else "Unknown"
-
-        # ----- PUBLISH DATE -----
+        # Trích xuất tác giả
+        author = article.authors[0] if article.authors else "Unknown"
+        
+        # Xử lý ngày tháng linh hoạt
         p_date = article.publish_date
         if not p_date:
+            # Tìm trong meta tag hoặc các class phổ biến của báo VN
             raw_date = (
-                response.css('meta[property="article:published_time"]::attr(content)').get()
-                or response.css('span.date::text').get()   
-                or response.css('div.author-time span::text').get()  
+                response.css('meta[property*="published_time"]::attr(content)').get() or
+                response.css('span.date::text').get() or
+                response.css('.date::text').get()
             )
             if raw_date:
                 try:
-                    # xử lý format tiếng Việt
-                    raw_date = re.sub(r"Thứ\s\w+,\s*", "", raw_date)
-                    raw_date = raw_date.replace("(GMT+7)", "").strip()
-                    p_date = date_parser.parse(raw_date, dayfirst=True)
-                except Exception as e:
-                    print("Parse date error:", raw_date, e)
+                    # Regex tìm định dạng dd/mm/yyyy hoặc dd-mm-yyyy
+                    match = re.search(r'(\d{1,2})[/-](\d{1,2})[/-](\d{4})', raw_date)
+                    if match:
+                        d, m, y = match.groups()
+                        p_date = datetime(int(y), int(m), int(d))
+                    else:
+                        # Dùng parser tự động nếu regex không ra
+                        p_date = date_parser.parse(raw_date, fuzzy=True)
+                except:
                     p_date = None
-        publish_date = p_date.strftime("%Y-%m-%d %H:%M:%S") if p_date else "Unknown"
-        
-        
-        # ----- OUTPUT -----
+
         yield {
             'title': article.title.strip(),
             'content': article.text.strip(),
             'url': response.url,
-            'source': response.url.split('/')[2],
+            'source': scrapy.utils.url.parse_url(response.url).netloc,
             'author': author,
-            'publish_date': publish_date
+            'publish_date': p_date.strftime("%Y-%m-%d %H:%M:%S") if p_date else "Unknown"
         }

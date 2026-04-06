@@ -74,6 +74,11 @@ def run_etl_warehouse():
         for url_hash, title, content_raw, url in rows:
             try:
                 data = content_raw if isinstance(content_raw, dict) else json.loads(content_raw)
+                raw_authors = data.get('author', 'Unknown')
+                p_date_str = data.get('publish_date', 'Unknown')
+                if not raw_authors or raw_authors == "Unknown" or not p_date_str or p_date_str == "Unknown":
+                    print(f"[SKIP] Thiếu tác giả hoặc ngày tháng: {title[:30]}...")
+                    continue
                 
                 # ----- 2. TRANSFORM -----
                 # Làm sạch content - chỉ xử lý xuống dòng, khoảng trắng thừa và các pattern rác. Ảnh thừa và link lạ đã được loại bỏ ở spider.py.
@@ -147,8 +152,11 @@ def run_etl_warehouse():
                 cur.execute("DELETE FROM fact_chunks WHERE article_id = %s", (article_id,))
                 chunks = text_splitter.split_text(cleaned_text) # Tách chunk
                 for i, chunk_text in enumerate(chunks):
-                    cur.execute("INSERT INTO fact_chunks (article_id, chunk_index, content) VALUES (%s, %s, %s)", (article_id, i, chunk_text))
-                
+                    # Loại bỏ các ký tự lạ ở đầu chunk
+                    clean_chunk = chunk_text.lstrip('. ,!?\n\t')
+                    if clean_chunk:
+                        cur.execute("INSERT INTO fact_chunks (article_id, chunk_index, content) VALUES (%s, %s, %s)", (article_id, i, clean_chunk))
+
                 conn.commit()
                 print(f" [OK] Title: {title[:40]}...")
 

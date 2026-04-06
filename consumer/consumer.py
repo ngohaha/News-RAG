@@ -18,7 +18,7 @@ def get_postgres_conn():
 # Kafka config
 conf = {
     'bootstrap.servers': 'localhost:9092',
-    'group.id': 'news_rag_group_concho', # Đổi tên group ở đây
+    'group.id': 'news_rag_group_oithoichec', # Đổi tên group ở đây
     'auto.offset.reset': 'earliest'
 }
 
@@ -28,65 +28,61 @@ consumer.subscribe(['news_raw'])
 
 def start_processing():
     print(" [Consumer] Đang chạy pipeline PostgreSQL-only...")
-
+    
+    # Khởi tạo kết nối ban đầu
     pg_conn = get_postgres_conn()
-    pg_conn.autocommit = False  # kiểm soát transaction
-
+    
     try:
         while True:
-            print(" [Consumer] Đang chờ message mới..." )
             msg = consumer.poll(1.0)
             if msg is None:
+                # Đừng print liên tục ở đây để tránh trôi log của Spider
                 continue
 
             if msg.error():
-                print(f"[ERROR] Kafka: {msg.error()}")
+                print(f" [Kafka Error]: {msg.error()}")
                 continue
 
             try:
-                data = json.loads(msg.value().decode('utf-8'))
+                # Decode message
+                raw_data = msg.value().decode('utf-8')
+                data = json.loads(raw_data)
+                
                 url = data.get('url', '')
-                title = data.get('title', 'No Title')
-
-                # Add author and publish date if available
+                title = data.get('title', 'Unknown Title')
                 author = data.get('author', 'Unknown')
                 publish_date = data.get('publish_date', None)
+                content = data.get('content', '') # Lấy content riêng ra
 
-                if not url:
-                    continue
+                if not url: continue
 
-                # Hash URL
                 url_hash = hashlib.sha256(url.encode()).hexdigest()
 
                 with pg_conn.cursor() as cursor:
-
-                    # INSERT với ON CONFLICT (dedup cực sạch)
+                    # Logic chuẩn: INSERT hoặc bỏ qua, không cần RETURNING phức tạp
                     cursor.execute("""
                         INSERT INTO article_metadata (url_hash, url, title, content, author, publish_date)
                         VALUES (%s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (url_hash) DO NOTHING
-                        RETURNING url_hash;
-                    """, (url_hash, url, title, json.dumps(data), author, publish_date))
+                        ON CONFLICT (url_hash) DO NOTHING;
+                    """, (url_hash, url, title, content, author, publish_date))
+                
+                # Commit ngay lập tức cho từng bài để đảm bảo an toàn dữ liệu
+                pg_conn.commit()
+                print(f"[SUCCESS] {title[:50]}...")
 
-                    result = cursor.fetchone()
-
-                    if result:
-                        pg_conn.commit()
-                        print(f" [SUCCESS] Insert: {title[:50]}...")
-                    else:
-                        pg_conn.rollback()
-                        print(f" [SKIP] Duplicate: {title[:50]}...")
-
+            except psycopg2.InterfaceError:
+                # Nếu kết nối DB bị đứt, hãy thử kết nối lại thay vì sập luôn
+                print("[DB] Mất kết nối, đang thử kết nối lại...")
+                pg_conn = get_postgres_conn()
             except Exception as e:
                 pg_conn.rollback()
-                print(f"[ERROR] Processing: {e}")
-                pg_conn.close()
+                print(f"[ERROR] Bỏ qua bài do lỗi: {e}")
 
     except KeyboardInterrupt:
-        print("\n [Consumer] Đang dừng...")
+        print("\n[Consumer] Đang dừng...")
     finally:
         consumer.close()
-        pg_conn.close()
+        if pg_conn: pg_conn.close()
 
 
 if __name__ == "__main__":
