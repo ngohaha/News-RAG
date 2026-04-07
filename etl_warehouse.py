@@ -45,29 +45,29 @@ def run_etl_warehouse():
         init_warehouse_schema(cur, conn)
         
         # KHỞI TẠO HỆ THỐNG (SYSTEM INIT) 
-        print("[*] Đang kiểm tra và khởi tạo các bản ghi mặc định (ID 0)...")
-        try:
-            # 1. Bơm lại bản ghi ID = 0 làm "phao cứu sinh" cho dữ liệu khuyết
-            cur.execute("""
-                INSERT INTO dim_time (time_id, date, day, month, year) 
-                SELECT 0, '1900-01-01', 1, 1, 1900 
-                WHERE NOT EXISTS (SELECT 1 FROM dim_time WHERE time_id = 0);
-            """)
+        # print("[*] Đang kiểm tra và khởi tạo các bản ghi mặc định (ID 0)...")
+        # try:
+        #     # 1. Bơm lại bản ghi ID = 0 làm "phao cứu sinh" cho dữ liệu khuyết
+        #     cur.execute("""
+        #         INSERT INTO dim_time (time_id, date, day, month, year) 
+        #         SELECT 0, '1900-01-01', 1, 1, 1900 
+        #         WHERE NOT EXISTS (SELECT 1 FROM dim_time WHERE time_id = 0);
+        #     """)
             
-            cur.execute("""
-                INSERT INTO dim_author (author_id, author_name) 
-                SELECT 0, 'Unknown' 
-                WHERE NOT EXISTS (SELECT 1 FROM dim_author WHERE author_id = 0);
-            """)
+        #     cur.execute("""
+        #         INSERT INTO dim_author (author_id, author_name) 
+        #         SELECT 0, 'Unknown' 
+        #         WHERE NOT EXISTS (SELECT 1 FROM dim_author WHERE author_id = 0);
+        #     """)
             
-            # 2. Reset Sequence an toàn (Tránh lỗi đếm ID nếu bảng chỉ có mỗi ID 0)
-            cur.execute("SELECT setval('dim_time_time_id_seq', GREATEST((SELECT MAX(time_id) FROM dim_time), 1));")
-            cur.execute("SELECT setval('dim_author_author_id_seq', GREATEST((SELECT MAX(author_id) FROM dim_author), 1));")
+        #     # 2. Reset Sequence an toàn (Tránh lỗi đếm ID nếu bảng chỉ có mỗi ID 0)
+        #     cur.execute("SELECT setval('dim_time_time_id_seq', GREATEST((SELECT MAX(time_id) FROM dim_time), 1));")
+        #     cur.execute("SELECT setval('dim_author_author_id_seq', GREATEST((SELECT MAX(author_id) FROM dim_author), 1));")
             
-            conn.commit()
-        except Exception as e:
-            conn.rollback()
-            print(f"[!] Cảnh báo System Init: {e}")
+        #     conn.commit()
+        # except Exception as e:
+        #     conn.rollback()
+        #     print(f"[!] Cảnh báo System Init: {e}")
 
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=800, chunk_overlap=150,
@@ -79,12 +79,32 @@ def run_etl_warehouse():
         if not rows:
             print("[!] Không có dữ liệu trong article_metadata.")
             return
+        
+        # Xóa dữ liệu trùng 
+        seen_titles = set()
+        raw_rows = []
+        for row in rows:
+            current_title = row[1]
+            if current_title not in seen_titles:
+                seen_titles.add(current_title)
+                raw_rows.append(row)
+            else:
+                # Nếu muốn xem có bao nhiêu bài trùng bị loại ngay từ vòng gửi xe thì bật dòng này:
+                print(f" [DROP] Trùng lặp trong batch: {current_title[:40]}...")
+                pass
 
-        for url_hash, title, content_raw, url in rows:
+        print(f"[*] Bắt đầu xử lý {len(raw_rows)} bản ghi (Đã loại bỏ các bản ghi trùng lặp nội bộ)...")
+
+        for url_hash, title, content_raw, url in raw_rows:
             try:
                 data = content_raw if isinstance(content_raw, dict) else json.loads(content_raw)
-                
-                # --- ĐÃ XÓA KHỐI LỆNH SKIP Ở ĐÂY ĐỂ TRÁNH RƠI RỚT DỮ LIỆU ---
+
+                # Xóa bản ghi thiếu author hoặc publish_date để tránh lỗi khi xử lý
+                raw_authors = data.get('author', 'Unknown')
+                p_date_str = data.get('publish_date', 'Unknown')
+                if raw_authors == "Unknown" or p_date_str == "Unknown" or not p_date_str:
+                    print(f" [SKIP] Khuyết thông tin (Author/Date): {title[:40]}...")
+                    continue
 
                 cleaned_text = clean_text(data.get('content', ''))
                 
@@ -92,7 +112,12 @@ def run_etl_warehouse():
                 if not raw_authors or raw_authors == "Unknown":
                     author_list = ["Unknown"]
                 elif isinstance(raw_authors, str):
-                    author_list = [a.strip() for a in re.split(r' - |, | và ', raw_authors) if a.strip()]
+                    clean_authors = re.sub(r'\(.*?\)', '', raw_authors)
+                    clean_authors = re.split(r'(?i)\s+và\s+', clean_authors)[0]
+                    raw_list = re.split(r',|\s*-\s*', clean_authors)
+                    author_list = [a.strip() for a in raw_list if a.strip()]
+                    if not author_list:
+                        author_list = ["Unknown"]
                 else:
                     author_list = raw_authors
 
@@ -134,7 +159,6 @@ def run_etl_warehouse():
 
                 cur.execute("DELETE FROM fact_article_authors WHERE article_id = %s", (article_id,))
                 for name in author_list:
-                    curr_auth_id = 0
                     if name != "Unknown":
                         cur.execute("""
                             INSERT INTO dim_author (author_name) VALUES (%s) 
