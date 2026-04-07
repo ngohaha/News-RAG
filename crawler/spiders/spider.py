@@ -69,31 +69,168 @@ class NewsRAGSpider(scrapy.Spider):
         author_list = article.authors
         author = ", ".join(author_list).strip() if author_list else ""
 
+        # --- MÀNG LỌC THÔNG MINH ---
+        def is_valid_author(name):
+
+            clean_name = name.strip()
+            # 1. Chặn các đề mục, tựa đề bài viết liên quan (Chứa dấu ? hoặc !)
+            if re.match(r'^\d+[\.\-\)]', clean_name) or '?' in clean_name or '!' in clean_name:
+                return False
+
+
+            if not name or len(name) < 2 or len(name) > 100:
+                return False
+            
+            if len(re.findall(r'\d', name)) >= 7:
+                return False
+            name_lower = name.lower()
+
+            if re.match(r'^\d+[\.\-\)]', name.strip()):
+                return False
+            
+            # Chặn ngày/giờ (VD: 15/12/2023, 04:22)
+            if re.search(r'\d{1,2}[/-]\d{1,2}|\d{1,2}:\d{1,2}', name):
+                return False
+            
+            if len(clean_name.split()) > 6 and not any(d in name_lower for d in [',', '-', 'và', '&']):
+                # Ngoại lệ: Cho phép lọt nếu nó là tên cơ quan dài (bắt đầu bằng Báo, Tạp chí, Sở, Bộ, Nguồn...)
+                if not re.match(r'(?i)^(theo|nguồn|báo|tạp chí|đài|ban|ủy ban|sở|bộ)', clean_name):
+                    return False
+                
+            # BỘ LỌC TỪ KHÓA CẤM
+            bad_words = [
+                'thứ hai', 'thứ ba', 'thứ tư', 'thứ năm', 'thứ sáu', 'thứ bảy', 'chủ nhật', 
+                'ngày', 'tháng', 'năm', 'phút trước', 'giờ trước',
+                'january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 
+                'september', 'october', 'november', 'december',
+                'ảnh:', 'video:', 'xem thêm', 'bản quyền', 'chia sẻ', 'liên hệ', 'hotline', 'sđt', 'thông tin', 'fax', 'telephone'
+            ]
+            if any(word in name_lower for word in bad_words):
+                return False
+            return True
+        # ---------------------------
+
+        # GIAM LỎNG TÊN TÒA SOẠN: Lưu tạm để dùng làm phương án chót
+        fake_authors = [
+            'vietnamnet news', 'vietnamnet', 'ban biên tập', 
+            'giảm nghèo bền vững', 'dân trí', 'thời sự', 'kinh tế', 'bnvsba'
+        ]
+
+        # GIAM LỎNG: Nâng cấp kiểm tra "chứa từ khóa" thay vì "giống y hệt"
+        fallback_author = ""
+        if author:
+            author_lower = author.lower()
+            
+            # Lệnh any() sẽ quét: Chỉ cần 1 từ trong fake_authors xuất hiện trong author_lower là True
+            if any(fake in author_lower for fake in fake_authors) or not is_valid_author(author):
+                fallback_author = author
+                author = "" # Đánh rỗng để ép chạy mẻ lưới CSS bên dưới
+            elif not is_valid_author(author):
+                author = "" # Nếu tên tác giả ban đầu không hợp lệ, cũng đánh rỗng để chạy mẻ lưới CSS
+
         if not author:
+            # MẺ LƯỚI BẮN TỈA CHUYÊN SÂU
             author_selectors = [
-                response.css('.article-detail-author__info .name a::text').get(), # Vietnamnet mobile
-                response.css('.author-name a::text').get(), # Dân trí E-magazine
-                response.css('.news-detail-project::text').get(), # Vietnamnet chuyên đề
+                # Các class đặc thù nhóm tác giả
+                response.css('a[href*="tac-gia"]::text').getall(),
+                response.css('a[rel="author"]::text').getall(),
+                response.css('.news-detail-project::text').get(),
+                response.css('.news-detail-project *::text').getall(),
+                response.css('div.relative.font-medium::text').get(),
                 response.css('[rel="author"]::text').get(),
+                
+                # Bắn tỉa thẻ link "tac-gia"
+                response.css('div.name a[href*="tac-gia"]::text').get(),
+                response.css('div.name a[href*="tac-gia"]::attr(title)').get(),
+
+                response.css('a[href*="tac-gia"]::text').get(),
+                response.css('a[href*="tac-gia"]::attr(title)').get(),
+                
+                response.css('span.t1::text, span.t2::text, span.t3::text, span.t4::text, span.t5::text, span.t6::text').get(),
+                response.css('.author-info .name::text').get(), 
+                # Các class phổ biến
+                response.css('.author-name::text').get(),
+                response.css('.author-name a::text').get(),
+
+                response.css('.author-info .name::text').get(),
+                response.css('.detail-author::text').get(),
+                response.css('.tacgia::text').get(),
+                response.css('.tac-gia::text').get(),
+                response.css('.post-author::text').get(),
+                response.css('.article-author::text').get(),
+                response.css('.author::text').get(),
+                response.css('[itemprop="author"] [itemprop="name"]::text').get(),
+                response.css('[rel="author"]::text').get(),
+
+                # Định dạng căn lề phải
                 response.css('p[style*="text-align:right"] strong::text').get(),
                 response.css('p[style*="text-align: right"] strong::text').get(),
-                response.css('p.author_mail strong::text').get(),
-                response.css('.author::text').get()
+                response.css('div[style*="text-align: right"] strong::text').get(),
+                response.css('p.t-a-r strong::text').get(),
+                response.css('p.t-a-r b::text').get()
             ]
+            
             for a in author_selectors:
-                if a and a.strip() and a.strip() != "Unknown":
-                    author = a.strip()
-                    break
-        
-        # Kế hoạch B: Bắt thẻ in đậm cuối cùng của bài viết
-        if not author or author == "Unknown":
-            possible_authors = response.css('p strong::text, p b::text').getall()
-            if possible_authors:
-                for possible_author in reversed(possible_authors):
-                    clean_name = possible_author.strip()
-                    if 2 <= len(clean_name) <= 30:
-                        author = clean_name
+                if isinstance(a, list):
+                    a = " ".join([t.strip() for t in a if t and t.strip()])
+                    
+                if a and isinstance(a, str) and a.strip() and a.strip() != "Unknown":
+                    # Cắt bỏ ngày tháng dính kèm
+                    clean_a = a.split('•')[0].strip()
+                    clean_a = re.sub(r'(?i)(?:hotline|liên hệ|sđt|đt)?\s*:?\s*(?:0|\+84)[\d\s.-]{8,12}', '', clean_a)
+                    clean_a = re.sub(r'^-|-$', '', clean_a).strip()
+                    
+                    if is_valid_author(clean_a):
+                        author = clean_a
                         break
+        
+        
+        if not author or author == "Unknown":
+            # 1. Khoanh vùng nội dung chính
+            main_content = response.css('div[class*="content"], article, div[id*="content"], .post-body, .detail-content, .main-content')
+            target_area = main_content if main_content else response
+            
+            # 2. Lấy 15 thẻ <p> hoặc <div> ở khu vực cuối bài
+            bottom_nodes = target_area.xpath('.//p | .//div[contains(@class, "author") or contains(@class, "right") or contains(@style, "right") or contains(@align, "right")]')
+            
+            if bottom_nodes:
+                for node in reversed(bottom_nodes[-15:]):
+                    # TUYỆT CHIÊU: Nối toàn bộ text trong thẻ (kể cả có thẻ con) thành 1 chuỗi hoàn chỉnh
+                    full_text = node.xpath('normalize-space(.)').get()
+                    if not full_text: 
+                        continue
+                        
+                    # Dọn dẹp ngoặc kép bọc ngoài
+                    clean_text = full_text.replace('"', '').replace('“', '').replace('”', '').strip()
+                    if len(clean_text) < 2 or len(clean_text) > 100:
+                        continue
+                        
+                    # ƯU TIÊN 1: Bắt chữ "Nguồn:" hoặc "Theo" (Bất chấp có in đậm hay lề phải hay không)
+                    match_source = re.search(r'(?i)(?:Nguồn|Theo|Source)\s*:?\s*(.+)', clean_text)
+                    if match_source:
+                        candidate = match_source.group(1).strip()
+                        if is_valid_author(candidate):
+                            author = candidate
+                            break
+                            
+                    # ƯU TIÊN 2: Không có chữ "Nguồn", nhưng Node đó có in đậm hoặc được căn lề phải
+                    is_bold_or_right = node.xpath('.//strong | .//b | .//em') or \
+                                       'right' in node.attrib.get('style', '').lower() or \
+                                       'right' in node.attrib.get('class', '').lower() or \
+                                       'right' in node.attrib.get('align', '').lower() or \
+                                       't-a-r' in node.attrib.get('class', '').lower()
+                                       
+                    if is_bold_or_right and is_valid_author(clean_text):
+                        author = clean_text
+                        break
+        # KẾ HOẠCH C (PHƯƠNG ÁN CHÓT): Dùng lại thẻ Meta hoặc Tên tòa soạn
+        if not author or author == "Unknown":
+            if fallback_author:
+                author = fallback_author
+            else:
+                meta_author = response.css('meta[name="author"]::attr(content)').get() or response.css('meta[property="article:author"]::attr(content)').get()
+                if meta_author and is_valid_author(meta_author.strip()):
+                    author = meta_author.strip()
 
         author = author if author else "Unknown"
 
