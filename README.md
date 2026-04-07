@@ -21,6 +21,9 @@ Hệ thống gồm: Scrapy spider, pipeline Kafka, consumer PostgreSQL, Docker C
 - `docker-compose.yml`: Kafka, MongoDB, PostgreSQL
 - `warehouse.sql`: xây dựng star schema để lưu trữ dữ liệu 
 - `elt_warehouse.py`: Thu thập, Chuẩn hóa (Làm sạch và chia chunk), Nạp vào star schema 
+- `vectorize.py`: Lấy chunks từ Data Warehouse, dùng mô hình AI (`BAAI/bge-m3`) chuyển thành Vector và đẩy lên Qdrant kèm Payload.
+- `test_search.py`: Script mô phỏng truy vấn, kiểm thử khả năng tìm kiếm ngữ nghĩa của hệ thống.
+- `reset_qdrant.py`: Tiện ích dọn dẹp nhanh bộ nhớ Vector DB.
 
 ##  Chuẩn bị & chạy
 ### 1) Cài dependencies Python
@@ -72,6 +75,15 @@ docker exec -it postgres_news_rag psql -U tuan -d news_rag -c "SELECT title, url
 #vâng vâng mây mây...
 ```
 
+### 8) Nhúng Vector và đẩy lên Qdrant (Vectorize)
+```bash
+make vectorize
+```
+
+### 9) Kiểm thử tìm kiếm ngữ nghĩa (Mô phỏng RAG)
+```bash
+python test_search.py
+```
 
 
 ##  Cấu hình trang cào
@@ -89,12 +101,15 @@ Mở `crawler/spiders/config_site.json` và sửa danh sách URL (JSON array):
 5. `consumer` đọc topic, hash URL và insert vào `article_metadata` với `ON CONFLICT DO NOTHING` để tránh trùng.
 6. `init_warehouse_schema` trong `etl_warehouse` đọc dữ liệu từ file sql để khởi tạo các bảng cần thiết.
 7. `run_etl_warehouse` trong `etl_warehouse` khởi tạo ID = 0 cho author và publish_date 'Unknown', làm sạch dữ liệu, cắt chunk nội dung, nạp vào các bảng tương ứng.
+8. Vectorizing: `vectorize.py` cho các chunks từ DB, chạy qua mô hình BAAI/bge-m3 để tạo mảng Vector 1024 chiều, gói cùng metadata (URL, Title, Content) thành Payload và upsert lên Qdrant.
 
 ##  Lưu ý quan trọng
 - Nếu Kafka hoặc PostgreSQL không kết nối được, kiểm tra trạng thái container và cổng.
 - `consumer/consumer.py` đang kết nối Kafka `localhost:9092` và PostgreSQL host `localhost`; chạy trên host hoặc container khác cần chỉnh lại.
 - Spiders hiện chỉ parse `vnexpress.net` trong parse_article, nếu muốn mở rộng cần điều chỉnh logic lọc url.
 - Nếu `main.py` không consumer được, thử đổi tên `group_id` trong  `consumer.py` sau đó khởi động lại. 
+- Qdrant hoạt động trên cổng 6333 (REST) và 6334 (gRPC). Hãy chắc chắn các port này không bị xung đột trên máy host.
+- Trong lần chạy make vectorize đầu tiên, hệ thống sẽ mất một chút thời gian để tải model BAAI/bge-m3 (khoảng vài GB) về máy.
 
 ##  Mở rộng
 - Thêm cấu hình cho site khác (chỉ parse theo định dạng domain)

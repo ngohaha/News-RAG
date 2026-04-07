@@ -8,3 +8,5 @@ uvicorn
 pymongo
 lxml_html_clean
 confluent-kafka
+sentence_transformers
+qdrant_client

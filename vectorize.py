@@ -57,11 +57,11 @@ def run_vectorization():
 
         points = []
         # Qdrant yêu cầu ID phải là số nguyên (integer) hoặc UUID duy nhất cho mỗi vector.
-        # Ta sẽ tạo một ID duy nhất bằng cách kết hợp article_id và chunk_index
+        # Tạo một ID duy nhất bằng cách kết hợp article_id và chunk_index
         for idx, row in enumerate(chunks_data):
             article_id, chunk_index, content, title, url = row
             
-            # Vector hóa content
+            # Vectorize content
             vector = model.encode(content).tolist()
             
             # Tạo Point (Vector + Payload) cho Qdrant
@@ -78,14 +78,12 @@ def run_vectorization():
             )
             points.append(point)
             
-            # Đẩy dữ liệu theo batch (100 record một lần) để tối ưu hiệu năng
+            # Đẩy dữ liệu theo batch (100 record một lần)
             if len(points) >= 100:
                 qdrant.upsert(collection_name=COLLECTION_NAME, points=points)
                 points = []
-                # In ra tiến độ thực tế (Vị trí hiện tại / Tổng số)
                 print(f"  [+] Đã đẩy {idx + 1}/{total_chunks} chunks lên Qdrant...")
 
-        # Đẩy nốt những point còn dư chưa đủ 100
         if points:
             qdrant.upsert(collection_name=COLLECTION_NAME, points=points)
             print(f"  [+] Đã đẩy {total_chunks}/{total_chunks} chunks lên Qdrant...")
