@@ -26,8 +26,8 @@ services:
           limits:
             memory: 2G # Giới hạn 2GB RAM cho Mongo
       environment:
-        - MONGO_INITDB_ROOT_USERNAME=tuan
-        - MONGO_INITDB_ROOT_PASSWORD=tuan
+        - MONGO_INITDB_ROOT_USERNAME=newsrag
+        - MONGO_INITDB_ROOT_PASSWORD=newsrag
       volumes:
         - ./data/mongo_data:/data/db
   postgres:
@@ -36,8 +36,8 @@ services:
     ports:
       - "5432:5432"
     environment:
-      - POSTGRES_USER=tuan
-      - POSTGRES_PASSWORD=tuan
+      - POSTGRES_USER=newsrag
+      - POSTGRES_PASSWORD=newsrag
       - POSTGRES_DB=news_rag
     volumes:
       - ./data/postgres_data:/var/lib/postgresql/data

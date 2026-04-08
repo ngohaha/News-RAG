@@ -1,7 +1,7 @@
 import psycopg2
 
 conn = psycopg2.connect(
-    dbname="news_rag", user="tuan", password="tuan", host="localhost"
+    dbname="news_rag", user="newsrag", password="newsrag", host="localhost"
 )
 cur = conn.cursor()
 

@@ -6,8 +6,8 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 DB_CONFIG = {
     "dbname": "news_rag",
-    "user": "tuan",
-    "password": "tuan",
+    "user": "newsrag",
+    "password": "newsrag",
     "host": "localhost",
     "port": 5432
 }
@@ -26,7 +26,7 @@ def clean_text(text):
 def init_warehouse_schema(cur, conn):
     try:
         print("[*] Đang kiểm tra và cập nhật cấu trúc Warehouse từ warehouse.sql...")
-        with open('warehouse.sql', 'r', encoding='utf-8') as f:
+        with open('database/warehouse.sql', 'r', encoding='utf-8') as f:
             sql_script = f.read()
             cur.execute(sql_script)
             conn.commit()
@@ -43,42 +43,25 @@ def run_etl_warehouse():
         cur = conn.cursor()
 
         init_warehouse_schema(cur, conn)
-        
-        # KHỞI TẠO HỆ THỐNG (SYSTEM INIT) 
-        # print("[*] Đang kiểm tra và khởi tạo các bản ghi mặc định (ID 0)...")
-        # try:
-        #     # 1. Bơm lại bản ghi ID = 0 làm "phao cứu sinh" cho dữ liệu khuyết
-        #     cur.execute("""
-        #         INSERT INTO dim_time (time_id, date, day, month, year) 
-        #         SELECT 0, '1900-01-01', 1, 1, 1900 
-        #         WHERE NOT EXISTS (SELECT 1 FROM dim_time WHERE time_id = 0);
-        #     """)
-            
-        #     cur.execute("""
-        #         INSERT INTO dim_author (author_id, author_name) 
-        #         SELECT 0, 'Unknown' 
-        #         WHERE NOT EXISTS (SELECT 1 FROM dim_author WHERE author_id = 0);
-        #     """)
-            
-        #     # 2. Reset Sequence an toàn (Tránh lỗi đếm ID nếu bảng chỉ có mỗi ID 0)
-        #     cur.execute("SELECT setval('dim_time_time_id_seq', GREATEST((SELECT MAX(time_id) FROM dim_time), 1));")
-        #     cur.execute("SELECT setval('dim_author_author_id_seq', GREATEST((SELECT MAX(author_id) FROM dim_author), 1));")
-            
-        #     conn.commit()
-        # except Exception as e:
-        #     conn.rollback()
-        #     print(f"[!] Cảnh báo System Init: {e}")
 
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=800, chunk_overlap=150,
             separators=["\n\n", "\n", ".", " ", ""]
         )
 
-        cur.execute("SELECT url_hash, title, content, url FROM article_metadata")
+        cur.execute("""
+            SELECT am.url_hash, am.title, am.content, am.url 
+            FROM article_metadata am
+            LEFT JOIN fact_articles fa ON am.url_hash = fa.url_hash
+            WHERE fa.url_hash IS NULL
+        """)
         rows = cur.fetchall()
+        
         if not rows:
-            print("[!] Không có dữ liệu trong article_metadata.")
+            print("[!] Không có dữ liệu mới nào cần xử lý. ETL hoàn tất!")
             return
+            
+        print(f"[*] Bắt đầu xử lý {len(rows)} bản ghi mới...")
         
         # Xóa dữ liệu trùng 
         seen_titles = set()

@@ -28,7 +28,7 @@ class NewsRAGSpider(scrapy.Spider):
         super().__init__(*args, **kwargs)
         curr_dir = os.path.dirname(os.path.realpath(__file__))
         config_filename = 'config_site.json'
-        config_path = os.path.abspath(os.path.join(curr_dir, config_filename))
+        config_path = os.path.abspath(os.path.join(curr_dir, '../../config/config_site.json'))
 
         if not os.path.exists(config_path):
             self.logger.error(f"Không tìm thấy file: {config_path}")

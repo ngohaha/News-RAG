@@ -26,7 +26,7 @@ if __name__ == "__main__":
     multiprocessing.set_start_method('spawn', force=True)
 
     # 2. Đọc danh sách các trang báo từ config
-    config_path = 'crawler/spiders/config_site.json'
+    config_path = 'config/config_site.json'
     if not os.path.exists(config_path):
         print(f" Không tìm thấy file config tại: {config_path}")
         exit(1)

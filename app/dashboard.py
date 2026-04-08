@@ -6,8 +6,8 @@ from datetime import datetime
 # --- CẤU HÌNH KẾT NỐI ---
 PG_CONFIG = {
     "dbname": "news_rag",
-    "user": "tuan",
-    "password": "tuan",
+    "user": "newsrag",
+    "password": "newsrag",
     "host": "localhost", # Đổi thành "postgres_news_rag" nếu chạy trong mạng Docker
     "port": "5432"
 }

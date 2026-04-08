@@ -5,7 +5,7 @@ DOCKER_COMPOSE = docker-compose
 
 # --- LỆNH CHÍNH ---
 
-.PHONY: all setup up down restart crawl consume status clean
+.PHONY: all setup up down restart crawl consume status clean main etl vectorize reset_qdrant db-count kafka-peek
 
 # Khởi tạo môi trường lần đầu
 setup:
@@ -40,17 +40,24 @@ crawl:
 consume:
 	$(PYTHON) consumer/consumer.py
 
+main:
+	$(PYTHON) main.py
+
+etl:
+	$(PYTHON) etl/etl_warehouse.py
+
 vectorize:
-	$(PYTHON) vectorize.py
+	$(PYTHON) vectorize/vectorize.py
 
 reset_qdrant:
-	$(PYTHON) reset_qdrant.py
+	$(PYTHON) vectorize/reset_qdrant.py
+
 # Tiện ích
 db-count:
 	@echo "[DATABASE] Số lượng bài báo trong PostgreSQL:"
-	@docker exec -it postgres_news_rag psql -U tuan -d news_rag -c "SELECT count(*) FROM article_metadata;"
+	@docker exec -it postgres_news_rag psql -U newsrag -d news_rag -c "SELECT count(*) FROM article_metadata;"
 	@echo "[DATABASE] Số lượng bài báo trong MongoDB:"
-	@docker exec -it mongo_news_rag mongosh -u tuan -p tuan --authenticationDatabase admin news_db --eval "db.articles.countDocuments()"
+	@docker exec -it mongo_news_rag mongosh -u newsrag -p newsrag --authenticationDatabase admin news_db --eval "db.articles.countDocuments()"
 
 kafka-peek:
 	@echo "[KAFKA] Xem log Kafka để debug nhanh:"
