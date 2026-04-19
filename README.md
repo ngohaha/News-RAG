@@ -55,7 +55,7 @@ make setup
 ```bash
 make up
 make down #Nếu muốn tắt
-make reset #Để reset docker
+make restart #Để reset docker
 ```
 
 ### 3) Tạo bảng PostgreSQL (không cần nữa nhưng mà t lười xóa ai rảnh thì xóa hộ với)
@@ -88,9 +88,6 @@ streamlit run app/dashboard.py
 make vectorize
 ```
 
-### 9) Kiểm thử tìm kiếm ngữ nghĩa (Mô phỏng RAG)
-```bash
-python vectorize/test_search.py
 ```
 ## Lệnh kiểm tra & Tiện ích (Makefile & SQL)
 ```bash

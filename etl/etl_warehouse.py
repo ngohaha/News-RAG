@@ -11,7 +11,6 @@ DB_CONFIG = {
     "host": "news-rag-cloud.cl2emq8kis9l.ap-southeast-2.rds.amazonaws.com"
 }
 
-
 def clean_text(text):
     if not text: return ""
     text = re.sub(r'\s+', ' ', text) 
@@ -49,19 +48,11 @@ def run_etl_warehouse():
             separators=["\n\n", "\n", ".", " ", ""]
         )
 
-        cur.execute("""
-            SELECT am.url_hash, am.title, am.content, am.url 
-            FROM article_metadata am
-            LEFT JOIN fact_articles fa ON am.url_hash = fa.url_hash
-            WHERE fa.url_hash IS NULL
-        """)
+        cur.execute("SELECT url_hash, title, content, url FROM article_metadata")
         rows = cur.fetchall()
-        
         if not rows:
-            print("[!] Không có dữ liệu mới nào cần xử lý. ETL hoàn tất!")
+            print("[!] Không có dữ liệu trong article_metadata.")
             return
-            
-        print(f"[*] Bắt đầu xử lý {len(rows)} bản ghi mới...")
         
         # Xóa dữ liệu trùng 
         seen_titles = set()

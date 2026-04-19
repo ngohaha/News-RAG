@@ -54,11 +54,11 @@ reset_qdrant:
 
 # Tiện ích
 db-count:
-	@echo "[DATABASE] Số lượng bài báo trong PostgreSQL:"
-	@docker exec -it postgres_news_rag psql -U newsrag -d news_rag -c "SELECT count(*) FROM article_metadata;"
+	@echo "[DATABASE] Số lượng bài báo trong PostgreSQL (AWS RDS):"
+	@docker exec -e PGPASSWORD=tuantran postgres_news_rag psql -h news-rag-cloud.cl2emq8kis9l.ap-southeast-2.rds.amazonaws.com -U tuantran -d postgres -c "SELECT count(*) FROM article_metadata;"
 	@echo "[DATABASE] Số lượng bài báo trong MongoDB:"
 	@docker exec -it mongo_news_rag mongosh -u newsrag -p newsrag --authenticationDatabase admin news_db --eval "db.articles.countDocuments()"
-
+	
 kafka-peek:
 	@echo "[KAFKA] Xem log Kafka để debug nhanh:"
 	docker exec -it kafka_news_rag /opt/kafka/bin/kafka-console-consumer.sh --topic news_raw --bootstrap-server localhost:9092 --from-beginning --max-messages 5

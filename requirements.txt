@@ -11,3 +11,7 @@ confluent-kafka
 sentence_transformers
 qdrant_client
 streamlit
+FlagEmbedding
+transformers==4.41.2
+peft==0.11.1
+sentence-transformers==3.0.1

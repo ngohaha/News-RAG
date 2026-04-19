@@ -1,8 +1,8 @@
 import psycopg2
 import uuid
-from sentence_transformers import SentenceTransformer
+from FlagEmbedding import BGEM3FlagModel 
 from qdrant_client import QdrantClient
-from qdrant_client.models import VectorParams, Distance, PointStruct
+from qdrant_client.models import VectorParams, Distance, PointStruct, SparseVectorParams, SparseVector
 
 # --- 1. CẤU HÌNH KẾT NỐI ---
 PG_CONFIG = {
@@ -12,9 +12,8 @@ PG_CONFIG = {
     "host": "news-rag-cloud.cl2emq8kis9l.ap-southeast-2.rds.amazonaws.com"
 }
 
-
 QDRANT_URL = "http://localhost:6333"
-COLLECTION_NAME = "news_chunks"
+COLLECTION_NAME = "news_chunks" 
 
 def generate_uuid(article_id, chunk_index):
     """Tạo một UUID cố định vĩnh viễn dựa trên article_id và chunk_index"""
@@ -22,16 +21,22 @@ def generate_uuid(article_id, chunk_index):
     return str(uuid.uuid5(uuid.NAMESPACE_DNS, unique_string))
 
 def run_vectorization():
-    print("[*] Đang tải mô hình BAAI/bge-m3...")
-    model = SentenceTransformer('BAAI/bge-m3')
+    print("[*] Đang tải mô hình BAAI/bge-m3 (Phiên bản Hybrid)...")
+    model = BGEM3FlagModel('BAAI/bge-m3', use_fp16=True) 
     
     qdrant = QdrantClient(url=QDRANT_URL)
     
+    # Cấu hình Qdrant nhận 2 Vector cùng lúc (Dense & Sparse)
     if not qdrant.collection_exists(COLLECTION_NAME):
-        print(f"[*] Đang tạo collection '{COLLECTION_NAME}' trong Qdrant...")
+        print(f"[*] Đang tạo collection Hybrid '{COLLECTION_NAME}' trong Qdrant...")
         qdrant.create_collection(
             collection_name=COLLECTION_NAME,
-            vectors_config=VectorParams(size=1024, distance=Distance.COSINE),
+            vectors_config={
+                "dense": VectorParams(size=1024, distance=Distance.COSINE)
+            },
+            sparse_vectors_config={
+                "sparse": SparseVectorParams()
+            }
         )
     else:
         print(f"[*] Collection '{COLLECTION_NAME}' đã tồn tại.")
@@ -57,37 +62,67 @@ def run_vectorization():
         print("[*] Đang đối chiếu với Qdrant để tìm các chunks mới...")
         chunks_to_process = []
         
-        # Lọc ra những chunk chưa từng tồn tại trên Qdrant
+        # Lọc Incremental Load bằng UUID
         for row in all_chunks:
             article_id, chunk_index, content, title, url = row
             point_id = generate_uuid(article_id, chunk_index)
             
-            # Kiểm tra xem ID này đã có trên Qdrant chưa
             try:
-                # Nếu retrieve trả về danh sách rỗng -> ID này chưa có
                 result = qdrant.retrieve(collection_name=COLLECTION_NAME, ids=[point_id])
                 if not result:
                     chunks_to_process.append((point_id, article_id, chunk_index, content, title, url))
             except Exception:
-                # Trường hợp lỗi kết nối nhẹ, an toàn nhất là cứ thêm vào danh sách xử lý
                 chunks_to_process.append((point_id, article_id, chunk_index, content, title, url))
 
         total_new_chunks = len(chunks_to_process)
         if total_new_chunks == 0:
-            print("[SUCCESS] Tất cả các chunks đã có sẵn trên Qdrant. Hệ thống Vector DB đã Up-to-date!")
+            print("[SUCCESS] Dữ liệu Hybrid trên Qdrant đã Up-to-date!")
             return
 
-        print(f"[*] Bắt đầu Vector hóa và đẩy {total_new_chunks} chunks MỚI lên Qdrant...")
+        print(f"[*] Bắt đầu Vector hóa Hybrid và đẩy {total_new_chunks} chunks MỚI lên Qdrant...")
 
         points = []
         for idx, row in enumerate(chunks_to_process):
             point_id, article_id, chunk_index, content, title, url = row
             
-            vector = model.encode(content).tolist()
+            # Yêu cầu model sinh ra cả 2 loại vector
+            output = model.encode([content], return_dense=True, return_sparse=True)
             
+            # 1. Bóc tách Vector Ngữ nghĩa (Dense - 1024 chiều)
+            dense_vec = output['dense_vecs'][0].tolist()
+            
+            # 2. Bóc tách Vector Từ khóa (Sparse - Trọng số BM25)
+            lexical_dict = output['lexical_weights'][0]
+            
+            # Lọc ID trùng lặp và giữ trọng số lớn nhất (Max pooling)
+            sparse_dict = {}
+            for token_str, weight in lexical_dict.items():
+                token_id = model.tokenizer.convert_tokens_to_ids(token_str)
+                
+                # Tránh trường hợp Tokenizer trả về mảng rỗng hoặc list
+                if isinstance(token_id, list):
+                    if not token_id: continue
+                    token_id = token_id[0]
+                
+                # Ép kiểu rõ ràng để Qdrant không báo lỗi JSON
+                token_id = int(token_id)
+                weight = float(weight)
+                
+                if token_id in sparse_dict:
+                    sparse_dict[token_id] = max(sparse_dict[token_id], weight)
+                else:
+                    sparse_dict[token_id] = weight
+            
+            token_ids = list(sparse_dict.keys())
+            weights = list(sparse_dict.values())
+            
+            # 3. Tạo Point để đẩy lên Qdrant
             point = PointStruct(
-                id=point_id, # Sử dụng UUID chuẩn xác định
-                vector=vector,
+                id=point_id, 
+                vector={
+                    "dense": dense_vec,
+                    "sparse": SparseVector(indices=token_ids, values=weights)
+                },
                 payload={
                     "article_id": article_id,
                     "chunk_index": chunk_index,
@@ -107,7 +142,7 @@ def run_vectorization():
             qdrant.upsert(collection_name=COLLECTION_NAME, points=points)
             print(f"  [+] Đã đẩy {total_new_chunks}/{total_new_chunks} chunks mới lên Qdrant...")
 
-        print("\n[SUCCESS] Đã hoàn thành cập nhật dữ liệu vào Qdrant Vector DB!")
+        print("\n[SUCCESS] Đã nạp thành công dữ liệu HYBRID vào Qdrant Vector DB!")
 
     except Exception as e:
         print(f"[ERROR] Quá trình thất bại: {e}")
