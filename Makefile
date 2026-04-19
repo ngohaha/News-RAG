@@ -55,7 +55,7 @@ reset_qdrant:
 # Tiện ích
 db-count:
 	@echo "[DATABASE] Số lượng bài báo trong PostgreSQL (AWS RDS):"
-	@docker exec -e PGPASSWORD=tuantran postgres_news_rag psql -h news-rag-cloud.cl2emq8kis9l.ap-southeast-2.rds.amazonaws.com -U tuantran -d postgres -c "SELECT count(*) FROM article_metadata;"
+	@docker run --rm -e PGPASSWORD=tuantran postgres:latest psql -h news-rag-cloud.cl2emq8kis9l.ap-southeast-2.rds.amazonaws.com -U tuantran -d postgres -c "SELECT count(*) FROM article_metadata;"
 	@echo "[DATABASE] Số lượng bài báo trong MongoDB:"
 	@docker exec -it mongo_news_rag mongosh -u newsrag -p newsrag --authenticationDatabase admin news_db --eval "db.articles.countDocuments()"
 	

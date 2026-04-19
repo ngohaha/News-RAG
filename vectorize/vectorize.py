@@ -12,7 +12,9 @@ PG_CONFIG = {
     "host": "news-rag-cloud.cl2emq8kis9l.ap-southeast-2.rds.amazonaws.com"
 }
 
-QDRANT_URL = "http://localhost:6333"
+# --- CẤU HÌNH QDRANT CLOUD ---
+QDRANT_URL = "https://1dbe8b30-05be-452b-8ae6-bd3d0d18464c.us-west-2-0.aws.cloud.qdrant.io"
+QDRANT_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIiwic3ViamVjdCI6ImFwaS1rZXk6ZTY1YzEwZDMtYmRlZi00MjkzLTllNzgtNGI0ZThiOWRjNTMyIn0.PXfxHDR-w_64a_0HdP9Mw3KHZbGmC59F_DG4VJoCezE"
 COLLECTION_NAME = "news_chunks" 
 
 def generate_uuid(article_id, chunk_index):
@@ -24,7 +26,10 @@ def run_vectorization():
     print("[*] Đang tải mô hình BAAI/bge-m3 (Phiên bản Hybrid)...")
     model = BGEM3FlagModel('BAAI/bge-m3', use_fp16=True) 
     
-    qdrant = QdrantClient(url=QDRANT_URL)
+    qdrant = QdrantClient(
+        url=QDRANT_URL,
+        api_key=QDRANT_API_KEY
+    )
     
     # Cấu hình Qdrant nhận 2 Vector cùng lúc (Dense & Sparse)
     if not qdrant.collection_exists(COLLECTION_NAME):
