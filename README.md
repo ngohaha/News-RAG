@@ -36,6 +36,17 @@ NEWS-RAG/
 │   ├── reset_qdrant.py
 │   ├── test_search.py
 │   └── vectorize.py
+│──  search/
+│  ├── __init__.py          # Khởi tạo module, export các class chính (Pipeline, generator_registry)
+│  ├── config.py            # Quản lý cấu hình LLM, API Key, Scaling (Pydantic Settings)
+│  ├── engine.py            # Chứa class Pipeline - Điều phối luồng (Retriever -> Generator)
+│  ├── generator.py         # Lõi Generator: Registry, Singleton, Base Classes cho các AI Model
+│  ├── retriever.py         # Logic kết nối Qdrant, thực hiện Vector Search để lấy Context
+│  ├── prompts.py           # Quản lý các System Prompt mẫu để tối ưu câu trả lời tiếng Việt
+│  ├── schemas.py           # Định nghĩa cấu hình dữ liệu (Pydantic Models: SearchHit, GeneratorResponse)
+│  ├── logger_setup.py      # Cấu hình logging tập trung (Log ra console và file app.log)
+│  ├── utils.py             # Các hàm bổ trợ (xử lý chuỗi, tính thời gian, format văn bản)
+│  └── app.log              # File lưu trữ vết (logs) của hệ thống khi vận hành         
 ├── .gitignore
 ├── docker-compose.yml
 ├── main.py                 # File khởi chạy Orchestrator 
@@ -103,6 +114,23 @@ make clean
 # Xóa sạch bộ nhớ Vector DB trên Qdrant
 make reset_qdrant
 ```
+### 9) Search & RAG (Hệ thống truy vấn AI)
+Đây là tầng ứng dụng cuối cùng, cho phép người dùng hỏi đáp dựa trên toàn bộ dữ liệu tin tức đã được nhúng (vectorize). Hệ thống hỗ trợ Scaling LLM - cho phép chạy song song nhiều mô hình khác nhau để so sánh kết quả.
+**Tính năng chính:**
+***Multi-Model Support:*** Tích hợp linh hoạt Groq (Qwen, Llama), Google Gemini, OpenAI và Ollama (Local).
+***Generator Registry:*** Quản lý tập trung các instance model thông qua Pattern Singleton và Registry.
+***Scaling:*** Thay đổi số lượng và loại model chỉ bằng cách chỉnh sửa file .env mà không cần sửa code.
+**Quy trình:**
+1. Query Processing: Nhận câu hỏi từ người dùng thông qua Pipeline.
+2. Retrieval: Retriever thực hiện tìm kiếm ngữ nghĩa trên Qdrant để lấy ra Top-K đoạn tin tức liên quan nhất.
+3. Augmentation: Toàn bộ ngữ cảnh (Context) được format và đưa vào Prompt chuyên dụng.
+4. Generation: GeneratorRegistry điều phối model LLM được chọn để tổng hợp thông tin và trả lời người dùng bằng tiếng Việt.
+| Lệnh | Mô tả |
+| :--- | :--- |
+| `make test-interative` | Khởi động giao diện chat tương tác CLI (nhập liệu từ bàn phím). |
+| `make test-gen` | Kiểm tra riêng lẻ khả năng phản hồi của các Generator. |
+| `make test-pipeline` | Chạy kiểm tra tích hợp toàn bộ luồng từ Retrieval đến Generation. |
+
 
 ##  Cấu hình trang cào
 Mở `crawler/spiders/config_site.json` và sửa danh sách URL (JSON array):

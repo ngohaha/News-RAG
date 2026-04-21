@@ -1,7 +1,10 @@
+.PHONY: help install test test-cov clean
+
 # --- BIẾN ---
 PYTHON = venv/bin/python
 SCRAPY = venv/bin/scrapy
 DOCKER_COMPOSE = docker-compose
+PYTEST = pytest
 
 # --- LỆNH CHÍNH ---
 
@@ -66,3 +69,18 @@ kafka-peek:
 clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} +
 	@echo "[CLEAN] Đã dọn dẹp file rác."
+
+test-gen:
+	@echo "[*] Đang kiểm tra Generator API..."
+	PYTHONPATH=. $(PYTHON) -m tests.search.test_generator
+
+test-pipeline:
+	@echo "[*] Đang kiểm tra Pipeline API..."
+	PYTHONPATH=. $(PYTHON) -m tests.search.test_pipeline
+
+test-interactive:
+	@echo "[*] Đang kiểm tra..."
+	PYTHONPATH=. $(PYTHON) -m tests.search.test_interactive
+
+
+
