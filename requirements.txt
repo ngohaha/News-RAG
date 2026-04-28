@@ -25,3 +25,6 @@ langchain_openai
 langchain_google_genai
 langchain_ollama
 langchain_groq
+langchain-nvidia-ai-endpoints
+ragas 
+datasets

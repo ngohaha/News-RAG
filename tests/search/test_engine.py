@@ -23,7 +23,7 @@ def run_e2e_test():
         
         # 3. Execute the pipeline
         print("[*] Đang xử lý...")
-        response = pipeline.ask(query=query)
+        response = pipeline.ask(query=query, model="gemini-2.5-flash")
 
         # 4. Display Results
         print("\n" + "✨" + "-"*15 + " CÂU TRẢ LỜI " + "-"*15)

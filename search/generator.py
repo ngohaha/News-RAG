@@ -9,6 +9,8 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_ollama.chat_models import ChatOllama
 from langchain_groq import ChatGroq
+from langchain_nvidia_ai_endpoints import ChatNVIDIA
+
 
 from .config import settings, LLMInstanceConfig
 from .schemas import SearchHit
@@ -138,6 +140,23 @@ class GroqGenerator(BaseGenerator):
         except Exception as e:
             logger.error(f"[{self._config.name.upper()}Generator] Failed to initialize LLM chain: {e}")
             raise RuntimeError(f"[{self._config.name.upper()}Generator] Failed to initialize LLM chain: {e}")
+        
+class NvidiaGenerator(BaseGenerator):
+    """Concrete implementation of BaseGenerator using Nvidia's API."""
+    def _init_llm(self):
+        """Initializes the Nvidia LLM."""
+        try:
+            logger.info(f"[{self._config.name.upper()}Generator] Initializing Groq LLM and prompt chain...")
+            return ChatNVIDIA(
+                model=self._config.model_id,
+                nvidia_api_key=self._config.api_key,
+                temperature=self._config.temperature,
+                max_tokens=self._config.max_tokens
+            )
+        except Exception as e:
+            logger.error(f"[{self._config.name.upper()}Generator] Failed to initialize LLM chain: {e}")
+            raise RuntimeError(f"[{self._config.name.upper()}Generator] Failed to initialize LLM chain: {e}")
+
     
 class GeneratorRegistry:
     """Registry to manage and retrieve generator instances."""
@@ -149,7 +168,9 @@ class GeneratorRegistry:
         "openai": OpenAIGenerator,
         "google": GoogleGenerator,
         "groq": GroqGenerator,
-        "ollama": OllamaGenerator
+        "ollama": OllamaGenerator,
+        "nvidia": NvidiaGenerator,
+        "siliconflow": OpenAIGenerator
     }
 
     def __new__(cls):
@@ -268,4 +289,3 @@ class GeneratorRegistry:
         return results
 
 generator_registry = GeneratorRegistry()
-

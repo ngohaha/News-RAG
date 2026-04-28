@@ -87,19 +87,27 @@ def run_vectorization():
             print("[!] Không có chunk nào trong Warehouse.")
             return
 
-        print("[*] Đang đối chiếu với Qdrant để tìm các chunks mới...")
+        print("[*] Đang đối chiếu với Qdrant để tìm các chunks mới (Xử lý hàng loạt)...")
         chunks_to_process = []
         
-        # Lọc Incremental Load
-        for row in all_chunks:
-            article_id, chunk_index, content, title, url, publish_date, authors = row
-            point_id = generate_uuid(article_id, chunk_index)
-            
+        # 1. TỐI ƯU: Truy xuất ID hàng loạt (Batch Retrieve) để check Incremental
+        all_point_ids = [generate_uuid(row[0], row[1]) for row in all_chunks]
+        existing_ids = set()
+        
+        # Chia lô 1000 ID mỗi lần hỏi Qdrant
+        for i in range(0, len(all_point_ids), 1000):
+            batch_ids = all_point_ids[i:i+1000]
             try:
-                result = qdrant.retrieve(collection_name=COLLECTION_NAME, ids=[point_id])
-                if not result:
-                    chunks_to_process.append(row) # Đưa toàn bộ row vào danh sách
-            except Exception:
+                # Tìm những ID đã tồn tại trên Qdrant
+                results = qdrant.retrieve(collection_name=COLLECTION_NAME, ids=batch_ids)
+                existing_ids.update([res.id for res in results])
+            except Exception as e:
+                print(f"[!] Lỗi khi check Qdrant batch {i}: {e}")
+        
+        # Lọc ra những chunk thực sự chưa có mặt trên Qdrant
+        for row in all_chunks:
+            point_id = generate_uuid(row[0], row[1])
+            if point_id not in existing_ids:
                 chunks_to_process.append(row)
 
         total_new_chunks = len(chunks_to_process)
@@ -109,71 +117,82 @@ def run_vectorization():
 
         print(f"[*] Bắt đầu Vector hóa và đẩy {total_new_chunks} chunks MỚI lên Qdrant...")
 
+        # 2. TỐI ƯU: Vector hóa hàng loạt (Batch Encoding)
+        ENCODE_BATCH_SIZE = 32 # Tùy chỉnh (16, 32, 64) dựa trên RAM/VRAM máy bạn
         points = []
-        for idx, row in enumerate(chunks_to_process):
-            article_id, chunk_index, content, title, url, publish_date, authors = row
-            point_id = generate_uuid(article_id, chunk_index)
-            
-            # --- 1. BIẾN ĐỔI THỜI GIAN THÀNH TIMESTAMP ---
-            timestamp = 0
-            if publish_date and publish_date != 'Unknown':
-                try:
-                    date_str = str(publish_date)[:10] 
-                    dt_obj = datetime.strptime(date_str, "%Y-%m-%d")
-                    timestamp = int(time.mktime(dt_obj.timetuple()))
-                except Exception:
-                    timestamp = 0
 
-            # --- 2. VECTOR HÓA BẰNG MÔ HÌNH ---
-            output = model.encode([content], return_dense=True, return_sparse=True)
+        for i in range(0, total_new_chunks, ENCODE_BATCH_SIZE):
+            batch_rows = chunks_to_process[i:i+ENCODE_BATCH_SIZE]
+            batch_contents = [row[2] for row in batch_rows]
             
-            # Bóc tách Dense Vector
-            dense_vec = output['dense_vecs'][0].tolist()
+            # Đưa cả cụm văn bản vào model để xử lý song song
+            batch_output = model.encode(batch_contents, return_dense=True, return_sparse=True)
             
-            # Bóc tách và Lọc Sparse Vector (Max Pooling)
-            lexical_dict = output['lexical_weights'][0]
-            sparse_dict = {}
-            for token_str, weight in lexical_dict.items():
-                token_id = model.tokenizer.convert_tokens_to_ids(token_str)
-                if isinstance(token_id, list):
-                    if not token_id: continue
-                    token_id = token_id[0]
+            batch_dense_vecs = batch_output['dense_vecs']
+            batch_lexical_weights = batch_output['lexical_weights']
+
+            for j, row in enumerate(batch_rows):
+                article_id, chunk_index, content, title, url, publish_date, authors = row
+                point_id = generate_uuid(article_id, chunk_index)
                 
-                token_id = int(token_id)
-                weight = float(weight)
+                # --- BIẾN ĐỔI THỜI GIAN THÀNH TIMESTAMP ---
+                timestamp = 0
+                if publish_date and publish_date != 'Unknown':
+                    try:
+                        date_str = str(publish_date)[:10] 
+                        dt_obj = datetime.strptime(date_str, "%Y-%m-%d")
+                        timestamp = int(time.mktime(dt_obj.timetuple()))
+                    except Exception:
+                        pass
+
+                # --- BÓC TÁCH DENSE & SPARSE CHO TỪNG PHẦN TỬ TRONG BATCH ---
+                dense_vec = batch_dense_vecs[j].tolist()
+                lexical_dict = batch_lexical_weights[j]
                 
-                if token_id in sparse_dict:
-                    sparse_dict[token_id] = max(sparse_dict[token_id], weight)
-                else:
-                    sparse_dict[token_id] = weight
+                sparse_dict = {}
+                for token_str, weight in lexical_dict.items():
+                    token_id = model.tokenizer.convert_tokens_to_ids(token_str)
+                    if isinstance(token_id, list):
+                        if not token_id: continue
+                        token_id = token_id[0]
+                    
+                    token_id = int(token_id)
+                    weight = float(weight)
+                    
+                    if token_id in sparse_dict:
+                        sparse_dict[token_id] = max(sparse_dict[token_id], weight)
+                    else:
+                        sparse_dict[token_id] = weight
+                
+                token_ids = list(sparse_dict.keys())
+                weights = list(sparse_dict.values())
+                
+                # --- ĐÓNG GÓI POINT ---
+                point = PointStruct(
+                    id=point_id, 
+                    vector={
+                        "dense": dense_vec,
+                        "sparse": SparseVector(indices=token_ids, values=weights)
+                    },
+                    payload={
+                        "article_id": article_id,
+                        "chunk_index": chunk_index,
+                        "title": title,
+                        "url": url,
+                        "content": content,
+                        "authors": authors,
+                        "publish_timestamp": timestamp
+                    }
+                )
+                points.append(point)
             
-            token_ids = list(sparse_dict.keys())
-            weights = list(sparse_dict.values())
-            
-            # --- 3. ĐÓNG GÓI POINT LÊN QDRANT ---
-            point = PointStruct(
-                id=point_id, 
-                vector={
-                    "dense": dense_vec,
-                    "sparse": SparseVector(indices=token_ids, values=weights)
-                },
-                payload={
-                    "article_id": article_id,
-                    "chunk_index": chunk_index,
-                    "title": title,
-                    "url": url,
-                    "content": content,
-                    "authors": authors,
-                    "publish_timestamp": timestamp # Dùng Timestamp để AI nhạy cảm với thời gian
-                }
-            )
-            points.append(point)
-            
-            if len(points) >= 100:
+            # Đẩy lên Qdrant theo lô 128 (hoặc tùy lượng tích lũy)
+            if len(points) >= 128:
                 qdrant.upsert(collection_name=COLLECTION_NAME, points=points)
+                print(f"  [+] Đã đẩy {min(i + ENCODE_BATCH_SIZE, total_new_chunks)}/{total_new_chunks} chunks mới lên Qdrant...")
                 points = []
-                print(f"  [+] Đã đẩy {idx + 1}/{total_new_chunks} chunks mới lên Qdrant...")
 
+        # Đẩy nốt số point còn sót lại ở cuối
         if points:
             qdrant.upsert(collection_name=COLLECTION_NAME, points=points)
             print(f"  [+] Đã đẩy {total_new_chunks}/{total_new_chunks} chunks mới lên Qdrant...")
