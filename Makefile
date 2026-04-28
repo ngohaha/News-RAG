@@ -8,7 +8,7 @@ PYTEST = pytest
 
 # --- LỆNH CHÍNH ---
 
-.PHONY: all setup up down restart crawl consume status clean main etl vectorize reset_qdrant db-count kafka-peek test-interactive test-gen test-pipeline
+.PHONY: all setup up down restart crawl consume status clean main etl vectorize reset_qdrant db-count kafka-peek test-interactive test-gen test-pipeline eval
 
 # Khởi tạo môi trường lần đầu
 setup:
@@ -82,5 +82,5 @@ test-interactive:
 	@echo "[*] Đang kiểm tra..."
 	PYTHONPATH=. $(PYTHON) -m tests.search.test_interactive
 
-
-
+eval:
+	$(PYTHON) evaluation/ragas_evaluation.py
